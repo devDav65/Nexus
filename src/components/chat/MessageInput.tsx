@@ -215,13 +215,15 @@ export default function MessageInput({
               disabled={sending}
               className={cn(
                   "w-full resize-none rounded-2xl px-4 py-2.5 pr-10 text-sm leading-relaxed",
-                  "bg-muted/50 border border-transparent",
+                  "bg-white border border-transparent", // J'ai mis bg-white pour correspondre à ton image
                   "focus:outline-none focus:border-border",
-                  "placeholder:text-muted-foreground transition-colors",
+                  "text-black", // <--- Ajoute ceci pour le texte que tu saisis
+                  "placeholder:text-black/60", // <--- Ajoute ceci pour le placeholder (60% d'opacité pour différencier)
+                  "transition-colors",
                   "max-h-[140px] disabled:opacity-50"
               )}
           />
-            <button className="absolute right-3 bottom-2.5 text-muted-foreground">
+            <button className="absolute right-3 bottom-2.5 text-black">
               <Smile className="w-4 h-4" />
             </button>
           </div>
