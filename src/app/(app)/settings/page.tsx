@@ -1,8 +1,23 @@
-export default function SettingsPage() {
-  return (
-    <div className="flex flex-col items-center justify-center h-full text-muted-foreground gap-2">
-      <p className="text-lg font-medium capitalize">settings</p>
-      <p className="text-sm">Bientôt disponible</p>
-    </div>
-  )
+import { createClient } from "@/lib/supabase/server"
+import { redirect } from "next/navigation"
+import ProfileClient from "@/components/profile/ProfileClient"
+
+export default async function SettingsPage() {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect("/login")
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("*")
+    .eq("id", user.id)
+    .single()
+
+  const { data: settings } = await supabase
+    .from("user_settings")
+    .select("*")
+    .eq("user_id", user.id)
+    .single()
+
+  return <ProfileClient profile={profile} settings={settings} userId={user.id} />
 }

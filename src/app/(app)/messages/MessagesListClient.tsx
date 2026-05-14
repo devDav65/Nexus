@@ -1,25 +1,25 @@
-"use client";
+"use client"
 
-import { useState, useEffect } from "react";
-import { createClient } from "@/lib/supabase/client";
-import Link from "next/link";
-import { formatDistanceToNow } from "date-fns";
-import { fr } from "date-fns/locale";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
-import { Search, Plus, Edit3 } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { useState, useEffect } from "react"
+import { createClient } from "@/lib/supabase/client"
+import Link from "next/link"
+import { formatDistanceToNow } from "date-fns"
+import { fr } from "date-fns/locale"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import { Input } from "@/components/ui/input"
+import { Button } from "@/components/ui/button"
+import { Search, Plus, Edit3 } from "lucide-react"
+import { cn } from "@/lib/utils"
 
 interface Props {
-  initialConversations: any[];
-  currentUserId: string;
+  initialConversations: any[]
+  currentUserId: string
 }
 
 export default function MessagesListClient({ initialConversations, currentUserId }: Props) {
-  const supabase = createClient();
-  const [conversations, setConversations] = useState(initialConversations);
-  const [query, setQuery] = useState("");
+  const supabase = createClient()
+  const [conversations, setConversations] = useState(initialConversations)
+  const [query, setQuery] = useState("")
 
   const refetch = async () => {
     const { data } = await supabase
@@ -36,30 +36,31 @@ export default function MessagesListClient({ initialConversations, currentUserId
       `)
       .eq("user_id", currentUserId)
       .order("conversation(last_message_at)", { ascending: false })
-      .limit(40);
-    if (data) setConversations(data);
-  };
+      .limit(40)
+    if (data) setConversations(data)
+  }
 
   useEffect(() => {
     const channel = supabase
       .channel("messages-list")
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "conversations" }, refetch)
-      .subscribe();
-    return () => { supabase.removeChannel(channel); };
-  }, [currentUserId]);
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages" }, refetch)
+      .subscribe()
+    return () => { supabase.removeChannel(channel) }
+  }, [currentUserId])
 
   const filtered = conversations.filter((item) => {
-    const conv = item.conversation;
-    if (!conv) return false;
-    const search = query.toLowerCase();
-    if (!search) return true;
-    if (conv.name?.toLowerCase().includes(search)) return true;
-    if (conv.last_message_preview?.toLowerCase().includes(search)) return true;
+    const conv = item.conversation
+    if (!conv) return false
+    const search = query.toLowerCase()
+    if (!search) return true
+    if (conv.name?.toLowerCase().includes(search)) return true
+    if (conv.last_message_preview?.toLowerCase().includes(search)) return true
     return conv.members?.some((m: any) =>
       m.profile?.display_name?.toLowerCase().includes(search) ||
       m.profile?.username?.toLowerCase().includes(search)
-    );
-  });
+    )
+  })
 
   return (
     <div className="flex flex-col h-full">
@@ -92,14 +93,17 @@ export default function MessagesListClient({ initialConversations, currentUserId
               <Plus className="w-6 h-6" />
             </div>
             <p className="text-sm">Aucune conversation pour l'instant</p>
-            <p className="text-xs">Recherchez un @username pour démarrer</p>
             <Button asChild variant="outline" size="sm">
               <Link href="/search">Trouver des contacts</Link>
             </Button>
           </div>
         ) : (
           filtered.map((item) => (
-            <ConversationRow key={item.conversation?.id} item={item} currentUserId={currentUserId} />
+            <ConversationRow
+              key={item.conversation?.id}
+              item={item}
+              currentUserId={currentUserId}
+            />
           ))
         )}
       </div>
@@ -110,31 +114,44 @@ export default function MessagesListClient({ initialConversations, currentUserId
         </Button>
       </div>
     </div>
-  );
+  )
 }
 
 function ConversationRow({ item, currentUserId }: { item: any; currentUserId: string }) {
-  const conv = item.conversation;
-  if (!conv) return null;
+  const conv = item.conversation
+  if (!conv) return null
 
-  const isDM = conv.type === "direct";
-  const otherMember = isDM ? conv.members?.find((m: any) => m.user_id !== currentUserId) : null;
+  const isDM = conv.type === "direct"
+  const otherMember = isDM
+    ? conv.members?.find((m: any) => m.user_id !== currentUserId)
+    : null
+
   const displayName = isDM
-    ? otherMember?.profile?.display_name ?? `@${otherMember?.profile?.username}` ?? "Contact"
-    : conv.name ?? "Groupe";
-  const avatarUrl = isDM ? otherMember?.profile?.avatar_url : conv.avatar_url;
-  const isOnline = otherMember?.profile?.status === "online";
-  const initials = displayName.charAt(0).toUpperCase();
+    ? otherMember?.profile?.display_name ?? (otherMember?.profile?.username ? `@${otherMember.profile.username}` : "Contact")
+    : conv.name ?? "Groupe"
 
-  const lastRead = new Date(item.last_read_at ?? 0);
-  const lastMsg = conv.last_message_at ? new Date(conv.last_message_at) : null;
-  const hasUnread = !item.is_muted && lastMsg && lastMsg > lastRead;
+  const avatarUrl = isDM ? otherMember?.profile?.avatar_url : conv.avatar_url
+  const isOnline = otherMember?.profile?.status === "online"
+  const initials = displayName.replace("@", "").charAt(0).toUpperCase()
+
+  const lastRead = new Date(item.last_read_at ?? 0)
+  const lastMsg = conv.last_message_at ? new Date(conv.last_message_at) : null
+  const hasUnread = !item.is_muted && lastMsg && lastMsg > lastRead
+
+  // Nom de l'expéditeur du dernier message
+  const lastSender = conv.members?.find((m: any) => {
+    // On cherche qui a envoyé le dernier message via le preview
+    return m.user_id === currentUserId
+  })
+  const isMyLastMessage = lastMsg && conv.last_message_preview &&
+    conv.members?.some((m: any) => m.user_id === currentUserId && lastMsg <= new Date(item.last_read_at ?? 0))
 
   return (
     <Link
       href={`/messages/${conv.id}`}
       className="flex items-center gap-3 px-4 py-3 hover:bg-muted/30 active:bg-muted/50 transition-colors"
     >
+      {/* Avatar */}
       <div className="relative shrink-0">
         <Avatar className="w-12 h-12">
           <AvatarImage src={avatarUrl ?? undefined} />
@@ -146,6 +163,8 @@ function ConversationRow({ item, currentUserId }: { item: any; currentUserId: st
           <span className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 rounded-full border-2 border-background" />
         )}
       </div>
+
+      {/* Contenu */}
       <div className="flex-1 min-w-0">
         <div className="flex items-baseline justify-between gap-2 mb-0.5">
           <p className={cn("text-sm truncate", hasUnread ? "font-semibold text-foreground" : "font-medium")}>
@@ -158,12 +177,26 @@ function ConversationRow({ item, currentUserId }: { item: any; currentUserId: st
           )}
         </div>
         <div className="flex items-center justify-between gap-2">
-          <p className={cn("text-xs truncate", hasUnread ? "text-foreground" : "text-muted-foreground")}>
-            {conv.last_message_preview ?? "Nouvelle conversation"}
+          <p className={cn("text-xs truncate", hasUnread ? "text-foreground font-medium" : "text-muted-foreground")}>
+            {conv.last_message_preview
+              ? <>
+                  {/* Préfixe "Vous : " si c'est mon dernier message */}
+                  {hasUnread
+                    ? <span className="text-primary font-semibold">{otherMember?.profile?.display_name ?? otherMember?.profile?.username ?? "Contact"} : </span>
+                    : <span className="text-muted-foreground">Vous : </span>
+                  }
+                  {conv.last_message_preview}
+                </>
+              : "Nouvelle conversation"
+            }
           </p>
-          {hasUnread && <span className="w-2 h-2 rounded-full bg-primary shrink-0" />}
+          {hasUnread && (
+            <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-primary text-primary-foreground text-[10px] font-bold flex items-center justify-center shrink-0">
+              N
+            </span>
+          )}
         </div>
       </div>
     </Link>
-  );
+  )
 }
