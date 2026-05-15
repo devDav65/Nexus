@@ -316,7 +316,7 @@ export default function StoriesClient({ stories, myStories, profile, currentUser
                 </div>
 
                 {/* Header viewer */}
-                <div className="absolute top-8 left-3 right-3 flex items-center justify-between z-10">
+                <div className="absolute top-8 left-3 right-3 flex items-center justify-between z-30">
                   <div className="flex items-center gap-2">
                     <Avatar className="w-8 h-8 border border-white/40">
                       <AvatarImage src={group.user.avatar_url ?? undefined} />
@@ -389,9 +389,9 @@ export default function StoriesClient({ stories, myStories, profile, currentUser
                     </div>
                 )}
 
-                {/* Tap zones navigation */}
-                <button onClick={prevStory} className="absolute left-0 top-0 w-1/3 h-full z-20" />
-                <button onClick={nextStory} className="absolute right-0 top-0 w-2/3 h-full z-20" />
+                
+                <button onClick={prevStory} className="absolute left-0 top-16 bottom-20 w-1/3 z-10" />
+                <button onClick={nextStory} className="absolute right-0 top-16 bottom-20 w-2/3 z-10" />
               </div>
           )
         })()}

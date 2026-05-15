@@ -1,110 +1,123 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Phone, Video, MicOff, Mic, VideoOff } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { useWebRTC } from "@/hooks/useWebRTC"
 
-interface CallScreenProps {
+interface Props {
+  callId: string
   contact: any
   callType: "audio" | "video"
+  currentUserId: string
+  isInitiator: boolean
   onEnd: () => void
 }
 
-export default function CallScreen({ contact, callType, onEnd }: CallScreenProps) {
+export default function CallScreen({ callId, contact, callType, currentUserId, isInitiator, onEnd }: Props) {
   const [muted, setMuted] = useState(false)
   const [cameraOff, setCameraOff] = useState(false)
-  const [status, setStatus] = useState<"calling" | "connected">("calling")
   const [duration, setDuration] = useState(0)
+  const localVideoRef = useRef<HTMLVideoElement>(null)
+  const remoteVideoRef = useRef<HTMLVideoElement>(null)
+
+  const { localStream, callState, endCall, toggleMute, toggleCamera } = useWebRTC({
+    callId, currentUserId, isInitiator, callType,
+    onStateChange: (state) => { if (state === "ended") onEnd() },
+    onRemoteStream: (stream) => {
+      if (remoteVideoRef.current) remoteVideoRef.current.srcObject = stream
+    },
+  })
 
   useEffect(() => {
-    const t = setTimeout(() => setStatus("connected"), 2000)
-    return () => clearTimeout(t)
-  }, [])
+    if (localStream && localVideoRef.current) localVideoRef.current.srcObject = localStream
+  }, [localStream])
 
   useEffect(() => {
-    if (status !== "connected") return
+    if (callState !== "connected") return
     const t = setInterval(() => setDuration(d => d + 1), 1000)
     return () => clearInterval(t)
-  }, [status])
+  }, [callState])
 
-  const formatDuration = (s: number) => {
-    const m = Math.floor(s / 60)
-    const sec = s % 60
-    return `${m}:${sec.toString().padStart(2, "0")}`
-  }
-
+  const fmt = (s: number) => `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, "0")}`
   const name = contact?.display_name ?? (contact?.username ? `@${contact.username}` : "Contact")
   const initial = name.replace("@", "").charAt(0).toUpperCase()
 
+  const handleEnd = async () => { await endCall(); onEnd() }
+
   return (
-    <div className="fixed inset-0 z-50 bg-zinc-900 flex flex-col items-center justify-between py-16 px-6">
-      <div className="flex flex-col items-center gap-4 mt-8">
-        <div className={cn(
-          "rounded-full p-1",
-          status === "calling" && "animate-pulse ring-2 ring-primary/50 ring-offset-2 ring-offset-zinc-900"
-        )}>
-          <Avatar className="w-24 h-24">
-            <AvatarImage src={contact?.avatar_url ?? undefined} />
-            <AvatarFallback className="text-3xl bg-primary/20 text-primary">
-              {initial}
-            </AvatarFallback>
-          </Avatar>
-        </div>
-        <div className="text-center">
-          <p className="text-white text-xl font-semibold">{name}</p>
-          <p className="text-white/60 text-sm mt-1">
-            {status === "calling"
-              ? (callType === "video" ? "Appel vidéo…" : "Appel audio…")
-              : formatDuration(duration)
-            }
-          </p>
-          {status === "connected" && (
-            <p className="text-green-400 text-xs mt-0.5">● Connecté</p>
+    <div className="fixed inset-0 z-50 bg-zinc-900 flex flex-col">
+      {callType === "video" ? (
+        <div className="flex-1 relative bg-zinc-800">
+          {callState === "connected" ? (
+            <video ref={remoteVideoRef} autoPlay playsInline className="w-full h-full object-cover" />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center flex-col gap-4">
+              <Avatar className={cn("w-28 h-28", callState === "calling" && "animate-pulse ring-4 ring-primary/40 ring-offset-4 ring-offset-zinc-900")}>
+                <AvatarImage src={contact?.avatar_url ?? undefined} />
+                <AvatarFallback className="text-4xl bg-primary/20 text-primary">{initial}</AvatarFallback>
+              </Avatar>
+              <p className="text-white text-xl font-semibold">{name}</p>
+              <p className="text-white/60">{isInitiator ? "Appel vidéo en cours…" : "Connexion…"}</p>
+            </div>
+          )}
+
+          {/* Flux local — coin bas droite */}
+          <div className="absolute bottom-28 right-3 w-28 h-40 rounded-2xl overflow-hidden border-2 border-white/20 shadow-2xl bg-zinc-700">
+            <video ref={localVideoRef} autoPlay muted playsInline
+              className={cn("w-full h-full object-cover", cameraOff && "hidden")} />
+            {cameraOff && (
+              <div className="w-full h-full flex items-center justify-center">
+                <VideoOff className="w-5 h-5 text-white/30" />
+              </div>
+            )}
+          </div>
+
+          {callState === "connected" && (
+            <div className="absolute top-4 left-0 right-0 flex flex-col items-center">
+              <p className="text-white text-sm font-semibold drop-shadow">{name}</p>
+              <p className="text-white/60 text-xs">{fmt(duration)}</p>
+            </div>
           )}
         </div>
-      </div>
-
-      {callType === "video" && status === "connected" && (
-        <div className="w-full max-w-sm aspect-video bg-zinc-800 rounded-2xl flex items-center justify-center">
-          {cameraOff
-            ? <div className="flex flex-col items-center gap-2 text-white/30"><VideoOff className="w-8 h-8" /><p className="text-xs">Caméra désactivée</p></div>
-            : <p className="text-white/20 text-xs">Vidéo en direct</p>
-          }
+      ) : (
+        <div className="flex-1 flex flex-col items-center justify-center gap-6">
+          <Avatar className={cn("w-28 h-28", callState === "calling" && "animate-pulse ring-4 ring-primary/40 ring-offset-4 ring-offset-zinc-900")}>
+            <AvatarImage src={contact?.avatar_url ?? undefined} />
+            <AvatarFallback className="text-4xl bg-primary/20 text-primary">{initial}</AvatarFallback>
+          </Avatar>
+          <div className="text-center">
+            <p className="text-white text-2xl font-semibold">{name}</p>
+            <p className="text-white/60 mt-2">
+              {callState === "calling" ? "Appel en cours…"
+               : callState === "ringing" ? "Sonnerie…"
+               : callState === "connected" ? fmt(duration) : "Fin de l'appel"}
+            </p>
+            {callState === "connected" && <p className="text-green-400 text-sm mt-1">● Connecté</p>}
+          </div>
         </div>
       )}
 
-      <div className="flex items-center gap-8">
-        <button
-          onClick={() => setMuted(!muted)}
-          className={cn(
-            "w-14 h-14 rounded-full flex items-center justify-center transition-all",
-            muted ? "bg-white text-zinc-900" : "bg-white/10 text-white hover:bg-white/20"
-          )}
-        >
+      <div className="shrink-0 flex items-center justify-center gap-8 pb-12 pt-6 bg-zinc-900">
+        <button onClick={() => setMuted(toggleMute())}
+          className={cn("w-14 h-14 rounded-full flex items-center justify-center transition-all",
+            muted ? "bg-white text-zinc-900" : "bg-zinc-700 text-white hover:bg-zinc-600")}>
           {muted ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
         </button>
 
-        <button
-          onClick={onEnd}
-          className="w-16 h-16 rounded-full bg-red-500 hover:bg-red-600 flex items-center justify-center transition-colors shadow-xl"
-        >
+        <button onClick={handleEnd}
+          className="w-16 h-16 rounded-full bg-red-500 hover:bg-red-600 flex items-center justify-center shadow-xl transition-colors">
           <Phone className="w-6 h-6 text-white rotate-[135deg]" />
         </button>
 
         {callType === "video" ? (
-          <button
-            onClick={() => setCameraOff(!cameraOff)}
-            className={cn(
-              "w-14 h-14 rounded-full flex items-center justify-center transition-all",
-              cameraOff ? "bg-white text-zinc-900" : "bg-white/10 text-white hover:bg-white/20"
-            )}
-          >
+          <button onClick={() => setCameraOff(toggleCamera())}
+            className={cn("w-14 h-14 rounded-full flex items-center justify-center transition-all",
+              cameraOff ? "bg-white text-zinc-900" : "bg-zinc-700 text-white hover:bg-zinc-600")}>
             {cameraOff ? <VideoOff className="w-5 h-5" /> : <Video className="w-5 h-5" />}
           </button>
-        ) : (
-          <div className="w-14 h-14" />
-        )}
+        ) : <div className="w-14 h-14" />}
       </div>
     </div>
   )

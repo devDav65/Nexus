@@ -1,6 +1,7 @@
 "use client"
 
 import { useRef, useEffect, useState } from "react"
+import { createClient } from "@/lib/supabase/client"
 import { useMessages } from "@/hooks/useMessages"
 import { useTyping } from "@/hooks/useTyping"
 import { usePresence } from "@/hooks/usePresence"
@@ -9,54 +10,58 @@ import MessageList from "@/components/chat/MessageList"
 import MessageInput from "@/components/chat/MessageInput"
 import CallScreen from "@/components/calls/CallScreen"
 
-interface ChatClientProps {
+interface Props {
   conversation: any
   initialMessages: any[]
   currentUserId: string
 }
 
-export default function ChatClient({
-  conversation,
-  initialMessages,
-  currentUserId,
-}: ChatClientProps) {
+export default function ChatClient({ conversation, initialMessages, currentUserId }: Props) {
+  const supabase = createClient()
   const bottomRef = useRef<HTMLDivElement>(null)
-  const [activeCall, setActiveCall] = useState<{ type: "audio" | "video"; contact: any } | null>(null)
+  const [activeCall, setActiveCall] = useState<{
+    callId: string; contact: any; callType: "audio" | "video"; isInitiator: boolean
+  } | null>(null)
 
   usePresence(currentUserId)
 
-  const { messages, loadMore, hasMore, loading } = useMessages({
-    conversationId: conversation.id,
-    initialMessages,
-  })
+  const { messages, loadMore, hasMore, loading } = useMessages({ conversationId: conversation.id, initialMessages })
 
   const currentMember = conversation.members?.find((m: any) => m.user_id === currentUserId)
-  const currentUsername =
-    currentMember?.profile?.display_name ??
-    currentMember?.profile?.username ??
-    "Quelqu'un"
+  const currentUsername = currentMember?.profile?.display_name ?? currentMember?.profile?.username ?? "Quelqu'un"
 
   const { typingUsers, sendTypingEvent } = useTyping({
-    conversationId: conversation.id,
-    currentUserId,
-    currentUsername,
+    conversationId: conversation.id, currentUserId, currentUsername,
   })
 
-  const otherMember =
-    conversation.type === "direct"
-      ? conversation.members?.find((m: any) => m.user_id !== currentUserId)
-      : null
+  const otherMember = conversation.type === "direct"
+    ? conversation.members?.find((m: any) => m.user_id !== currentUserId)
+    : null
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" })
   }, [messages.length])
 
-  // Appel actif → afficher CallScreen
+  const startCall = async (type: "audio" | "video") => {
+    if (!otherMember?.profile) return
+    const { data: call, error } = await supabase
+      .from("calls")
+      .insert({ caller_id: currentUserId, callee_id: otherMember.profile.id, type, status: "ringing" })
+      .select("id").single()
+
+    if (!error && call) {
+      setActiveCall({ callId: call.id, contact: otherMember.profile, callType: type, isInitiator: true })
+    }
+  }
+
   if (activeCall) {
     return (
       <CallScreen
+        callId={activeCall.callId}
         contact={activeCall.contact}
-        callType={activeCall.type}
+        callType={activeCall.callType}
+        currentUserId={currentUserId}
+        isInitiator={activeCall.isInitiator}
         onEnd={() => setActiveCall(null)}
       />
     )
@@ -68,23 +73,15 @@ export default function ChatClient({
         conversation={conversation}
         otherMember={otherMember}
         currentUserId={currentUserId}
-        onAudioCall={() => setActiveCall({ type: "audio", contact: otherMember?.profile })}
-        onVideoCall={() => setActiveCall({ type: "video", contact: otherMember?.profile })}
+        onAudioCall={() => startCall("audio")}
+        onVideoCall={() => startCall("video")}
       />
       <MessageList
-        messages={messages}
-        currentUserId={currentUserId}
-        typingUsers={typingUsers}
-        bottomRef={bottomRef}
-        onLoadMore={loadMore}
-        hasMore={hasMore}
-        loading={loading}
+        messages={messages} currentUserId={currentUserId}
+        typingUsers={typingUsers} bottomRef={bottomRef}
+        onLoadMore={loadMore} hasMore={hasMore} loading={loading}
       />
-      <MessageInput
-        conversationId={conversation.id}
-        currentUserId={currentUserId}
-        onTyping={sendTypingEvent}
-      />
+      <MessageInput conversationId={conversation.id} currentUserId={currentUserId} onTyping={sendTypingEvent} />
     </div>
   )
 }
