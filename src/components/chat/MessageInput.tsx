@@ -8,7 +8,8 @@ import {
   ChangeEvent,
 } from "react"
 import { createClient } from "@/lib/supabase/client"
-import { Paperclip, Smile, Send, Mic, X } from "lucide-react"
+import { Paperclip, Send, Mic, X } from "lucide-react"
+import EmojiPicker from "./EmojiPicker"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { useChatStore } from "@/stores/chat.store"
@@ -223,9 +224,12 @@ export default function MessageInput({
                   "max-h-[140px] disabled:opacity-50"
               )}
           />
-            <button className="absolute right-3 bottom-2.5 text-black">
-              <Smile className="w-4 h-4" />
-            </button>
+            <div className="absolute right-3 bottom-2">
+            <EmojiPicker onEmojiSelect={(emoji) => {
+              setText(prev => prev + emoji)
+              textareaRef.current?.focus()
+            }} />
+          </div>
           </div>
 
           <Button

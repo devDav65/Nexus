@@ -25,15 +25,37 @@ export default async function CommunityPage({ params }: Props) {
 
   if (!community) notFound()
 
-  const membership = (community.members as any[])?.find(m => m.profile?.id === user.id)
-  const isPublic = community.is_public
-  if (!isPublic && !membership) notFound()
+  const membership = (community.members as any[])?.find(
+    (m: any) => m.profile?.id === user.id
+  )
+
+  if (!community.is_public && !membership) notFound()
+
+  // Messages de la communauté (canal principal)
+  const { data: messages } = await supabase
+    .from("messages")
+    .select(`
+      id, content, type, created_at, is_edited, sender_id,
+      sender:profiles ( id, username, display_name, avatar_url )
+    `)
+    .eq("conversation_id", params.id) // on réutilise l'id communauté comme clé
+    .eq("is_deleted", false)
+    .order("created_at", { ascending: true })
+    .limit(50)
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("id, username, display_name, avatar_url")
+    .eq("id", user.id)
+    .single()
 
   return (
     <CommunityDetailClient
       community={community as any}
       currentUserId={user.id}
+      currentUserProfile={profile}
       membership={membership ?? null}
+      initialMessages={messages ?? []}
     />
   )
 }

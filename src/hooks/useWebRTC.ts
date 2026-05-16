@@ -3,209 +3,208 @@
 import { useEffect, useRef, useState, useCallback } from "react"
 import { createClient } from "@/lib/supabase/client"
 
-const ICE_SERVERS = {
-  iceServers: [
-    { urls: "stun:stun.l.google.com:19302" },
-    { urls: "stun:stun1.l.google.com:19302" },
-    { urls: "stun:stun2.l.google.com:19302" },
-  ],
-}
+export type CallState = "calling" | "ringing" | "connected" | "ended"
 
-export type CallState = "idle" | "calling" | "ringing" | "connected" | "ended"
-
-interface UseWebRTCOptions {
+interface Options {
   callId: string
   currentUserId: string
   isInitiator: boolean
   callType: "audio" | "video"
-  onStateChange?: (state: CallState) => void
+  onStateChange?: (s: CallState) => void
   onRemoteStream?: (stream: MediaStream) => void
 }
 
-export function useWebRTC({ callId, currentUserId, isInitiator, callType, onStateChange, onRemoteStream }: UseWebRTCOptions) {
+export function useWebRTC({ callId, currentUserId, isInitiator, callType, onStateChange, onRemoteStream }: Options) {
   const supabase = createClient()
   const pcRef = useRef<RTCPeerConnection | null>(null)
   const localStreamRef = useRef<MediaStream | null>(null)
   const channelRef = useRef<any>(null)
-  const pendingCandidates = useRef<RTCIceCandidateInit[]>([])
-  const offerSent = useRef(false)
+  const pendingRef = useRef<RTCIceCandidateInit[]>([])
+  const remoteSetRef = useRef(false)
   const [localStream, setLocalStream] = useState<MediaStream | null>(null)
   const [callState, setCallState] = useState<CallState>(isInitiator ? "calling" : "ringing")
 
-  const updateState = useCallback((state: CallState) => {
-    setCallState(state)
-    onStateChange?.(state)
+  const updateState = useCallback((s: CallState) => {
+    setCallState(s)
+    onStateChange?.(s)
   }, [onStateChange])
 
-  const getLocalMedia = useCallback(async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: true,
-        video: callType === "video"
-          ? { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: "user" }
-          : false,
-      })
-      localStreamRef.current = stream
-      setLocalStream(stream)
-      return stream
-    } catch (err) {
-      console.error("getUserMedia:", err)
-      return null
-    }
-  }, [callType])
+  const send = useCallback((event: string, data: any) => {
+    channelRef.current?.send({
+      type: "broadcast",
+      event,
+      payload: { from: currentUserId, ...data },
+    })
+  }, [currentUserId])
 
-  const createPC = useCallback((stream: MediaStream, channel: any) => {
-    const pc = new RTCPeerConnection(ICE_SERVERS)
-    pcRef.current = pc
+  const applyPending = useCallback(async (pc: RTCPeerConnection) => {
+    for (const c of pendingRef.current) {
+      try { await pc.addIceCandidate(new RTCIceCandidate(c)) } catch {}
+    }
+    pendingRef.current = []
+  }, [])
+
+  const createPC = useCallback((stream: MediaStream) => {
+    const pc = new RTCPeerConnection({
+      iceServers: [
+        { urls: "stun:stun.l.google.com:19302" },
+        { urls: "stun:stun1.l.google.com:19302" },
+        {
+          urls: "turn:openrelay.metered.ca:80",
+          username: "openrelayproject",
+          credential: "openrelayproject",
+        },
+        {
+          urls: "turn:openrelay.metered.ca:443",
+          username: "openrelayproject",
+          credential: "openrelayproject",
+        },
+        {
+          urls: "turn:openrelay.metered.ca:443?transport=tcp",
+          username: "openrelayproject",
+          credential: "openrelayproject",
+        },
+      ],
+    })
 
     stream.getTracks().forEach(t => pc.addTrack(t, stream))
 
     pc.ontrack = (e) => {
-      const remoteStream = e.streams[0]
-      if (remoteStream) onRemoteStream?.(remoteStream)
+      console.log("✅ Track distant reçu:", e.track.kind)
+      if (e.streams[0]) onRemoteStream?.(e.streams[0])
     }
 
     pc.onicecandidate = (e) => {
       if (e.candidate) {
-        channel.send({
-          type: "broadcast",
-          event: "ice",
-          payload: { from: currentUserId, candidate: e.candidate.toJSON() },
-        })
+        console.log("ICE local:", e.candidate.type)
+        send("ice", { candidate: e.candidate.toJSON() })
       }
     }
 
-    pc.onconnectionstatechange = () => {
-      console.log("PC state:", pc.connectionState)
-      if (pc.connectionState === "connected") {
+    pc.oniceconnectionstatechange = () => {
+      console.log("ICE state:", pc.iceConnectionState)
+      if (pc.iceConnectionState === "connected" || pc.iceConnectionState === "completed") {
         updateState("connected")
         supabase.from("calls")
           .update({ status: "active", started_at: new Date().toISOString() })
           .eq("id", callId)
       }
-      if (["disconnected", "failed", "closed"].includes(pc.connectionState)) {
+      if (pc.iceConnectionState === "failed") {
+        console.log("ICE failed, restart...")
+        pc.restartIce()
+      }
+      if (pc.iceConnectionState === "disconnected" || pc.iceConnectionState === "closed") {
         updateState("ended")
       }
     }
 
+    pcRef.current = pc
     return pc
-  }, [callId, currentUserId, onRemoteStream, updateState])
+  }, [callId, send, onRemoteStream, updateState])
 
   useEffect(() => {
     let mounted = true
 
     const init = async () => {
-      const stream = await getLocalMedia()
-      if (!stream || !mounted) return
+      // 1. Obtenir le flux local
+      let stream: MediaStream
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: true,
+          video: callType === "video"
+            ? { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: "user" }
+            : false,
+        })
+        localStreamRef.current = stream
+        setLocalStream(stream)
+      } catch (err) {
+        console.error("getUserMedia:", err)
+        return
+      }
 
-      // Canal signaling
-      const channel = supabase.channel(`call:${callId}`, {
+      if (!mounted) return
+
+      // 2. Canal signaling
+      const channel = supabase.channel(`rtc:${callId}`, {
         config: { broadcast: { self: false, ack: false } },
       })
       channelRef.current = channel
 
-      channel
-        // ── Destinataire reçoit l'offer ──
-        .on("broadcast", { event: "offer" }, async ({ payload }) => {
-          if (payload.from === currentUserId) return
-          console.log("Reçu offer")
+      // ── Réception offer (côté destinataire) ──
+      channel.on("broadcast", { event: "offer" }, async ({ payload }) => {
+        if (payload.from === currentUserId) return
+        console.log("📨 Offer reçu")
+        const pc = createPC(stream)
+        await pc.setRemoteDescription(new RTCSessionDescription(payload.sdp))
+        remoteSetRef.current = true
+        await applyPending(pc)
+        const answer = await pc.createAnswer()
+        await pc.setLocalDescription(answer)
+        send("answer", { sdp: answer })
+      })
 
-          const pc = createPC(stream, channel)
-
+      // ── Réception answer (côté appelant) ──
+      channel.on("broadcast", { event: "answer" }, async ({ payload }) => {
+        if (payload.from === currentUserId) return
+        console.log("📨 Answer reçu")
+        const pc = pcRef.current
+        if (pc && !remoteSetRef.current) {
           await pc.setRemoteDescription(new RTCSessionDescription(payload.sdp))
+          remoteSetRef.current = true
+          await applyPending(pc)
+        }
+      })
 
-          // Appliquer les ICE candidates en attente
-          for (const c of pendingCandidates.current) {
-            try { await pc.addIceCandidate(new RTCIceCandidate(c)) } catch {}
-          }
-          pendingCandidates.current = []
+      // ── ICE candidates ──
+      channel.on("broadcast", { event: "ice" }, async ({ payload }) => {
+        if (payload.from === currentUserId || !payload.candidate) return
+        const pc = pcRef.current
+        if (pc && remoteSetRef.current) {
+          try { await pc.addIceCandidate(new RTCIceCandidate(payload.candidate)) } catch {}
+        } else {
+          pendingRef.current.push(payload.candidate)
+        }
+      })
 
-          const answer = await pc.createAnswer()
-          await pc.setLocalDescription(answer)
+      // ── Fin d'appel par l'autre ──
+      channel.on("broadcast", { event: "end_call" }, ({ payload }) => {
+        if (payload.from === currentUserId) return
+        console.log("📞 Appel terminé par l'autre")
+        localStreamRef.current?.getTracks().forEach(t => t.stop())
+        pcRef.current?.close()
+        updateState("ended")
+      })
 
-          channel.send({
-            type: "broadcast",
-            event: "answer",
-            payload: { from: currentUserId, sdp: answer },
-          })
-        })
+      // ── Prêt → l'appelant envoie l'offer ──
+      channel.on("broadcast", { event: "ready" }, async ({ payload }) => {
+        if (payload.from === currentUserId) return
+        if (!isInitiator || pcRef.current) return
+        console.log("✅ Destinataire prêt, envoi offer")
+        const pc = createPC(stream)
+        const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: callType === "video" })
+        await pc.setLocalDescription(offer)
+        send("offer", { sdp: offer })
+      })
 
-        // ── Appelant reçoit l'answer ──
-        .on("broadcast", { event: "answer" }, async ({ payload }) => {
-          if (payload.from === currentUserId) return
-          console.log("Reçu answer")
-          const pc = pcRef.current
-          if (pc) await pc.setRemoteDescription(new RTCSessionDescription(payload.sdp))
-        })
+      channel.subscribe(async (status) => {
+        if (status !== "SUBSCRIBED") return
+        console.log("📡 Canal connecté, initiateur:", isInitiator)
 
-        // ── ICE candidates ──
-        .on("broadcast", { event: "ice" }, async ({ payload }) => {
-          if (payload.from === currentUserId) return
-          const pc = pcRef.current
-          if (!pc || !payload.candidate) return
+        // Signaler sa présence
+        send("ready", {})
 
-          if (pc.remoteDescription) {
-            try { await pc.addIceCandidate(new RTCIceCandidate(payload.candidate)) } catch {}
-          } else {
-            // Stocker en attente si remote desc pas encore setté
-            pendingCandidates.current.push(payload.candidate)
-          }
-        })
-
-        // ── Fin d'appel ──
-        .on("broadcast", { event: "end_call" }, () => {
-          console.log("Appel terminé par l'autre")
-          updateState("ended")
-        })
-
-        // ── Présence : le destinataire signale qu'il est prêt ──
-        .on("broadcast", { event: "ready" }, async ({ payload }) => {
-          if (payload.from === currentUserId) return
-          // Le destinataire est prêt → l'appelant envoie l'offer maintenant
-          if (isInitiator && !offerSent.current) {
-            console.log("Destinataire prêt, envoi offer")
-            offerSent.current = true
-            const pc = createPC(stream, channel)
-            const offer = await pc.createOffer()
+        // Fallback : appelant envoie offer après 2s si pas de réponse ready
+        if (isInitiator) {
+          setTimeout(async () => {
+            if (!mounted || pcRef.current) return
+            console.log("⏰ Fallback offer")
+            const pc = createPC(stream)
+            const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: callType === "video" })
             await pc.setLocalDescription(offer)
-            channel.send({
-              type: "broadcast",
-              event: "offer",
-              payload: { from: currentUserId, sdp: offer },
-            })
-          }
-        })
-
-        .subscribe(async (status) => {
-          if (status !== "SUBSCRIBED") return
-          console.log("Canal connecté, isInitiator:", isInitiator)
-
-          // Tout le monde signale qu'il est prêt
-          channel.send({
-            type: "broadcast",
-            event: "ready",
-            payload: { from: currentUserId },
-          })
-
-          // Si appelant, attendre 500ms puis envoyer l'offer
-          // (au cas où le destinataire était déjà connecté)
-          if (isInitiator) {
-            setTimeout(async () => {
-              if (!offerSent.current && mounted) {
-                console.log("Timeout fallback: envoi offer")
-                offerSent.current = true
-                const pc = createPC(stream, channel)
-                const offer = await pc.createOffer()
-                await pc.setLocalDescription(offer)
-                channel.send({
-                  type: "broadcast",
-                  event: "offer",
-                  payload: { from: currentUserId, sdp: offer },
-                })
-              }
-            }, 1500)
-          }
-        })
+            send("offer", { sdp: offer })
+          }, 2000)
+        }
+      })
     }
 
     init()
@@ -219,30 +218,30 @@ export function useWebRTC({ callId, currentUserId, isInitiator, callType, onStat
   }, [callId])
 
   const endCall = useCallback(async () => {
-    channelRef.current?.send({
-      type: "broadcast",
-      event: "end_call",
-      payload: { from: currentUserId },
-    })
+    // Notifier l'autre IMMÉDIATEMENT
+    send("end_call", {})
+
     localStreamRef.current?.getTracks().forEach(t => t.stop())
     pcRef.current?.close()
+
     await supabase.from("calls")
       .update({ status: "ended", ended_at: new Date().toISOString() })
       .eq("id", callId)
+
     if (channelRef.current) supabase.removeChannel(channelRef.current)
     updateState("ended")
-  }, [callId, currentUserId, updateState])
+  }, [callId, send, updateState])
 
   const toggleMute = useCallback(() => {
     const track = localStreamRef.current?.getAudioTracks()[0]
-    if (track) track.enabled = !track.enabled
-    return track ? !track.enabled : false
+    if (track) { track.enabled = !track.enabled; return !track.enabled }
+    return false
   }, [])
 
   const toggleCamera = useCallback(() => {
     const track = localStreamRef.current?.getVideoTracks()[0]
-    if (track) track.enabled = !track.enabled
-    return track ? !track.enabled : false
+    if (track) { track.enabled = !track.enabled; return !track.enabled }
+    return false
   }, [])
 
   return { localStream, callState, endCall, toggleMute, toggleCamera }

@@ -55,17 +55,30 @@ export default function CommunitiesClient({ myMemberships, publicCommunities, cu
       .select("id")
       .single()
 
-    if (error || !community) { setCreating(false); return }
+    if (error || !community) {
+      console.error("Erreur création communauté:", error)
+      setCreating(false)
+      return
+    }
 
-    await supabase.from("community_members").insert({
+    // Attendre que le membre soit bien inséré
+    const { error: memberError } = await supabase.from("community_members").insert({
       community_id: community.id,
       user_id: currentUserId,
       role: "owner",
     })
 
+    if (memberError) {
+      console.error("Erreur ajout membre:", memberError)
+      setCreating(false)
+      return
+    }
+
     setCreating(false)
     setShowCreate(false)
     setForm({ name: "", description: "", is_public: true })
+    // Petit délai pour que Supabase propage les données
+    await new Promise(r => setTimeout(r, 500))
     router.push(`/communities/${community.id}`)
   }
 
@@ -224,15 +237,20 @@ export default function CommunitiesClient({ myMemberships, publicCommunities, cu
                 <Input value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
                   placeholder="Optionnel…" maxLength={200} />
               </div>
-              <div className="flex items-center justify-between py-2">
+              <div className="flex items-center justify-between py-2 bg-muted/30 rounded-xl px-3">
                 <div>
-                  <p className="text-sm font-medium">Communauté publique</p>
-                  <p className="text-xs text-muted-foreground">Visible par tous</p>
+                  <p className="text-sm font-medium">
+                    {form.is_public ? "🌐 Publique" : "🔒 Privée"}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {form.is_public ? "Visible et rejoignable par tous" : "Sur invitation uniquement"}
+                  </p>
                 </div>
                 <button onClick={() => setForm(f => ({ ...f, is_public: !f.is_public }))}
-                  className={cn("w-10 h-6 rounded-full transition-colors relative", form.is_public ? "bg-primary" : "bg-muted")}>
-                  <span className={cn("absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-transform",
-                    form.is_public ? "translate-x-5" : "translate-x-1")} />
+                        className={cn("w-12 h-6 rounded-full transition-colors relative",
+                            form.is_public ? "bg-primary" : "bg-muted-foreground/40")}>
+    <span className={cn("absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-transform",
+        form.is_public ? "translate-x-7" : "translate-x-1")} />
                 </button>
               </div>
               <Button onClick={createCommunity} disabled={creating || !form.name.trim()} className="w-full gap-2">
