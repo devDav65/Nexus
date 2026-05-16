@@ -40,7 +40,8 @@ export default async function ConversationPage({ params }: Props) {
       id, content, type, status, created_at, is_edited, is_deleted,
       reply_to_id, sender_id,
       sender:profiles ( id, username, display_name, avatar_url ),
-      reactions ( id, emoji, user_id )
+      reactions ( id, emoji, user_id ),
+      attachments (*)
     `)
     .eq("conversation_id", params.id)
     .eq("is_deleted", false)
