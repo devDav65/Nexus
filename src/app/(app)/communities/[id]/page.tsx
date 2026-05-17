@@ -36,7 +36,9 @@ export default async function CommunityPage({ params }: Props) {
     .from("messages")
     .select(`
       id, content, type, created_at, is_edited, sender_id,
-      sender:profiles ( id, username, display_name, avatar_url )
+      sender:profiles ( id, username, display_name, avatar_url ),
+      attachments (*),
+      reactions ( id, emoji, user_id )
     `)
     .eq("conversation_id", params.id) // on réutilise l'id communauté comme clé
     .eq("is_deleted", false)

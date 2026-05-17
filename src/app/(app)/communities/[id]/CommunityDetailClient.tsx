@@ -7,6 +7,8 @@ import Link from "next/link"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import MessageInput from "@/components/chat/MessageInput"
+import MessageBubble from "@/components/chat/MessageBubble"
 import {
   Users, Hash, Crown, Shield, LogOut, UserPlus,
   Trash2, ArrowLeft, Globe, Lock, Loader2,
@@ -67,11 +69,25 @@ export default function CommunityDetailClient({
         filter: `conversation_id=eq.${community.id}`,
       }, async (payload) => {
         const msg = payload.new as any
-        const sender = members.find(m => m.profile?.id === msg.sender_id)?.profile ?? null
-        setMessages(prev => {
-          if (prev.find(m => m.id === msg.id)) return prev
-          return [...prev, { ...msg, sender }]
-        })
+        // Enrichir avec sender + attachments
+        const { data: fullMsg } = await supabase
+            .from("messages")
+            .select(`
+    id, content, type, status, created_at, is_edited, is_deleted, sender_id,
+    metadata,
+    sender:profiles ( id, username, display_name, avatar_url ),
+    attachments ( id, url, file_name, file_size, mime_type, duration ),
+    reactions ( id, emoji, user_id )
+  `)
+            .eq("id", payload.new.id)
+            .single()
+
+        if (fullMsg) {
+          setMessages(prev => {
+            if (prev.find(m => m.id === fullMsg.id)) return prev
+            return [...prev, fullMsg]
+          })
+        }
       })
       .subscribe()
     return () => { supabase.removeChannel(channel) }
@@ -278,56 +294,47 @@ export default function CommunityDetailClient({
                   const prevMsg = messages[i - 1]
                   const sameUser = prevMsg?.sender_id === msg.sender_id
                   return (
-                    <div key={msg.id} className={cn("flex gap-2", isMe && "flex-row-reverse")}>
-                      {!isMe && (
-                        <div className="w-7 shrink-0">
-                          {!sameUser && (
-                            <Avatar className="w-7 h-7">
-                              <AvatarImage src={msg.sender?.avatar_url ?? undefined} />
-                              <AvatarFallback className="text-[10px] bg-primary/10 text-primary">
-                                {(msg.sender?.display_name ?? msg.sender?.username ?? "?").charAt(0).toUpperCase()}
-                              </AvatarFallback>
-                            </Avatar>
-                          )}
-                        </div>
-                      )}
-                      <div className={cn("max-w-[75%]", isMe && "items-end")}>
-                        {!isMe && !sameUser && (
-                          <p className="text-[11px] text-muted-foreground mb-0.5 ml-1">
-                            {msg.sender?.display_name ?? `@${msg.sender?.username}`}
-                          </p>
-                        )}
-                        <div className={cn("px-3 py-2 rounded-2xl text-sm",
-                          isMe ? "bg-primary text-primary-foreground rounded-br-sm" : "bg-muted rounded-bl-sm")}>
-                          {msg.content}
-                          <span className="text-[10px] opacity-60 ml-2">
-                            {format(new Date(msg.created_at), "HH:mm")}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
+                    <MessageBubble
+                      key={msg.id}
+                      message={msg}
+                      isOwn={isMe}
+                      showAvatar={!sameUser}
+                      isGrouped={sameUser}
+                    />
                   )
                 })}
                 <div ref={bottomRef} />
               </div>
 
-              {/* Input message */}
-              <div className="shrink-0 px-3 py-2 border-t border-border">
-                <div className="flex items-center gap-2 bg-muted/50 rounded-2xl px-3 py-2 border border-border focus-within:border-primary/50">
-                  <input
-                    value={newMsg}
-                    onChange={e => setNewMsg(e.target.value)}
-                    onKeyDown={e => e.key === "Enter" && !e.shiftKey && (e.preventDefault(), sendMessage())}
-                    placeholder={`Message dans ${community.name}…`}
-                    className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
-                  />
-                  <button onClick={sendMessage} disabled={!newMsg.trim() || sending}
-                    className={cn("w-8 h-8 rounded-full flex items-center justify-center transition-colors",
-                      newMsg.trim() ? "bg-primary text-white" : "bg-muted text-muted-foreground")}>
-                    {sending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
-                  </button>
-                </div>
-              </div>
+              {/* Input message — complet avec emoji, vocal, fichiers */}
+              <MessageInput
+                conversationId={community.id}
+                currentUserId={currentUserId}
+                onTyping={() => {}}
+                onSend={async (text) => {
+                  if (!isMember) return
+                  // Créer la conversation si elle n existe pas
+                  const { data: existingConv } = await supabase
+                    .from("conversations")
+                    .select("id")
+                    .eq("id", community.id)
+                    .single()
+                  if (!existingConv) {
+                    await supabase.from("conversations").insert({
+                      id: community.id,
+                      type: "group",
+                      name: community.name,
+                      created_by: currentUserId,
+                    })
+                  }
+                  await supabase.from("messages").insert({
+                    conversation_id: community.id,
+                    sender_id: currentUserId,
+                    content: text,
+                    type: "text",
+                  })
+                }}
+              />
             </>
           )}
         </div>
