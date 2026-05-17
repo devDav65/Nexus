@@ -1,3 +1,10 @@
+#!/bin/bash
+echo "🚀 Ajout suppression/modification + statuts lecture..."
+
+# ============================================================
+# 1. MessageBubble avec menu contextuel + statuts
+# ============================================================
+cat > src/components/chat/MessageBubble.tsx << 'EOF'
 "use client"
 
 import { format } from "date-fns"
@@ -323,3 +330,90 @@ export default function MessageBubble({ message, isOwn, showAvatar, isGrouped, o
     </div>
   )
 }
+EOF
+echo "✓ MessageBubble avec menu + statuts"
+
+# ============================================================
+# 2. MessageList — passer les callbacks edit/delete
+# ============================================================
+cat > src/components/chat/MessageList.tsx << 'EOF'
+"use client"
+import { RefObject } from "react"
+import MessageBubble from "./MessageBubble"
+
+interface Props {
+  messages: any[]
+  currentUserId: string
+  typingUsers: string[]
+  bottomRef: RefObject<HTMLDivElement>
+  onEdit?: (id: string, content: string) => void
+  onDelete?: (id: string) => void
+}
+
+export default function MessageList({ messages, currentUserId, typingUsers, bottomRef, onEdit, onDelete }: Props) {
+  return (
+    <div className="flex-1 overflow-y-auto px-4 py-3 space-y-1">
+      {messages.length === 0 && (
+        <div className="flex items-center justify-center h-full text-muted-foreground">
+          <p className="text-sm">Aucun message. Soyez le premier à écrire !</p>
+        </div>
+      )}
+      {messages.map((msg, i) => {
+        const prevMsg = messages[i - 1]
+        const msgSenderId = msg.sender_id ?? msg.sender?.id
+        const prevSenderId = prevMsg ? (prevMsg.sender_id ?? prevMsg.sender?.id) : null
+        const isOwn = msgSenderId === currentUserId
+        const showAvatar = !isOwn && prevSenderId !== msgSenderId
+        const isGrouped = !!prevMsg && prevSenderId === msgSenderId &&
+          new Date(msg.created_at).getTime() - new Date(prevMsg.created_at).getTime() < 60000
+        return (
+          <MessageBubble
+            key={msg.id}
+            message={msg}
+            isOwn={isOwn}
+            showAvatar={showAvatar}
+            isGrouped={isGrouped}
+            onEdit={onEdit}
+            onDelete={onDelete}
+          />
+        )
+      })}
+      {typingUsers.length > 0 && (
+        <div className="flex items-center gap-2 px-2 py-1">
+          <div className="flex gap-1">
+            <span className="w-2 h-2 bg-muted-foreground/50 rounded-full animate-bounce [animation-delay:0ms]" />
+            <span className="w-2 h-2 bg-muted-foreground/50 rounded-full animate-bounce [animation-delay:150ms]" />
+            <span className="w-2 h-2 bg-muted-foreground/50 rounded-full animate-bounce [animation-delay:300ms]" />
+          </div>
+          <span className="text-xs text-muted-foreground">{typingUsers.join(", ")} est en train d'écrire…</span>
+        </div>
+      )}
+      <div ref={bottomRef} />
+    </div>
+  )
+}
+EOF
+echo "✓ MessageList mis à jour"
+
+echo ""
+echo "✅ Done ! Lance : pnpm dev"
+echo ""
+echo "📋 SQL à exécuter dans Supabase pour les statuts de lecture :"
+cat << 'SQL'
+-- Trigger : marquer les messages comme "delivered" à la réception
+CREATE OR REPLACE FUNCTION public.mark_messages_delivered()
+RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN
+  UPDATE public.messages
+  SET status = 'delivered'
+  WHERE conversation_id = NEW.conversation_id
+    AND sender_id != NEW.user_id
+    AND status = 'sent';
+  RETURN NEW;
+END; $$;
+
+DROP TRIGGER IF EXISTS on_member_read ON public.conversation_members;
+CREATE TRIGGER on_member_read
+  AFTER UPDATE OF last_read_at ON public.conversation_members
+  FOR EACH ROW EXECUTE FUNCTION public.mark_messages_delivered();
+SQL

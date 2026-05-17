@@ -81,7 +81,20 @@ export default function ChatClient({ conversation, initialMessages, currentUserI
         typingUsers={typingUsers} bottomRef={bottomRef}
         onLoadMore={loadMore} hasMore={hasMore} loading={loading}
       />
-      <MessageInput conversationId={conversation.id} currentUserId={currentUserId} onTyping={sendTypingEvent} />
+      <MessageInput
+        conversationId={conversation.id}
+        currentUserId={currentUserId}
+        onTyping={(isTyping) => { if (isTyping) sendTypingEvent() }}
+        onSend={async (text) => {
+          await supabase.from("messages").insert({
+            conversation_id: conversation.id,
+            sender_id: currentUserId,
+            content: text,
+            type: "text",
+            status: "sent",
+          })
+        }}
+      />
     </div>
   )
 }

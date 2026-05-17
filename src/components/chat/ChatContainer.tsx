@@ -160,6 +160,14 @@ export default function ChatContainer({
     }
   }
 
+  const handleEdit = (id: string, newContent: string) => {
+    setMessages(prev => prev.map(m => m.id === id ? { ...m, content: newContent, is_edited: true } : m))
+  }
+
+  const handleDelete = (id: string) => {
+    setMessages(prev => prev.map(m => m.id === id ? { ...m, is_deleted: true, content: "Message supprimé" } : m))
+  }
+
   const isDM = conversation.type === "direct"
   const otherMember = isDM
     ? conversation.members?.find((m: any) => m.user_id !== currentUserId)
@@ -183,6 +191,8 @@ export default function ChatContainer({
         currentUserId={currentUserId}
         typingUsers={typingUsers}
         bottomRef={bottomRef}
+        onEdit={handleEdit}
+        onDelete={handleDelete}
       />
       <MessageInput
         onSend={sendMessage}
