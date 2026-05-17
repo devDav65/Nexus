@@ -194,6 +194,15 @@ export default function MessageBubble({ message, isOwn, showAvatar, isGrouped, o
   const isText = message.type === "text" && !message.is_deleted
 
   const renderContent = () => {
+    // DEBUG — à supprimer après
+    if (process.env.NODE_ENV === 'development') {
+      console.log('MessageBubble:', {
+        type: message.type,
+        content: message.content,
+        attachments: message.attachments,
+        metadata: message.metadata,
+      })
+    }
     if (message.is_deleted) return <span className="italic opacity-50 text-xs">🚫 Message supprimé</span>
     if (message.type === "audio" && audioUrl) return <AudioPlayer url={audioUrl} isOwn={isOwn} />
     if (message.type === "image" && fileUrl) return <div className="-mx-1 -mt-1"><ImageMessage url={fileUrl} name={fileName ?? "image"} /></div>
