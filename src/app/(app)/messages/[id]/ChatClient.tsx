@@ -2,7 +2,7 @@
 
 import { useRef, useEffect, useState } from "react"
 import { createClient } from "@/lib/supabase/client"
-import { useMessages } from "@/hooks/useMessages"
+import { useMessages, markMessagesAsRead } from "@/hooks/useMessages"
 import { useTyping } from "@/hooks/useTyping"
 import { usePresence } from "@/hooks/usePresence"
 import ChatHeader from "@/components/chat/ChatHeader"
@@ -25,7 +25,7 @@ export default function ChatClient({ conversation, initialMessages, currentUserI
 
   usePresence(currentUserId)
 
-  const { messages, loadMore, hasMore, loading } = useMessages({ conversationId: conversation.id, initialMessages })
+  const { messages, loadMore, hasMore, loading } = useMessages({ conversationId: conversation.id, initialMessages, currentUserId })
 
   const currentMember = conversation.members?.find((m: any) => m.user_id === currentUserId)
   const currentUsername = currentMember?.profile?.display_name ?? currentMember?.profile?.username ?? "Quelqu'un"
@@ -40,6 +40,18 @@ export default function ChatClient({ conversation, initialMessages, currentUserI
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" })
+  }, [messages.length])
+
+  // Marquer comme lu quand on ouvre la conversation
+  useEffect(() => {
+    markMessagesAsRead(conversation.id, currentUserId)
+  }, [conversation.id, currentUserId])
+
+  // Marquer comme lu quand de nouveaux messages arrivent et qu'on est dans la conv
+  useEffect(() => {
+    if (messages.length > 0 && document.visibilityState === "visible") {
+      markMessagesAsRead(conversation.id, currentUserId)
+    }
   }, [messages.length])
 
   const startCall = async (type: "audio" | "video") => {

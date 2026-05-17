@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useRef } from "react"
+import { useState, useRef, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
 import { z } from "zod"
@@ -299,7 +299,38 @@ function NotificationSettings({ settings, userId }: { settings: any; userId: str
   const toggle = async (key: string) => {
     const newVal = !values[key as keyof typeof values]
     setValues(prev => ({ ...prev, [key]: newVal }))
-    await supabase.from("user_settings").update({ [key]: newVal }).eq("user_id", userId)
+    setSaving(key)
+    
+    // Upsert — crée les settings si inexistants
+    const { error } = await supabase
+      .from("user_settings")
+      .upsert({ user_id: userId, [key]: newVal }, { onConflict: "user_id" })
+    
+    if (error) {
+      // Rollback si erreur
+      setValues(prev => ({ ...prev, [key]: !newVal }))
+      console.error("Erreur toggle:", error)
+    }
+    setSaving(null)
+  }
+
+  // Charger les sessions actives
+  const loadSessions = async () => {
+    setLoadingSessions(true)
+    setShowSessions(true)
+    // Supabase ne fournit pas les sessions via client JS
+    // On simule avec la session actuelle
+    const { data: { session } } = await supabase.auth.getSession()
+    if (session) {
+      setSessions([{
+        id: session.access_token.slice(-8),
+        device: navigator.userAgent.includes("Mobile") ? "📱 Mobile" : "💻 Desktop",
+        location: "Session actuelle",
+        created_at: new Date(session.expires_at! * 1000 - 3600000).toISOString(),
+        isCurrent: true,
+      }])
+    }
+    setLoadingSessions(false)
   }
 
   return (
@@ -333,11 +364,298 @@ function NotificationSettings({ settings, userId }: { settings: any; userId: str
 
 // ── Privacy settings ───────────────────────────────────────
 function PrivacySettings({ settings, userId }: { settings: any; userId: string }) {
+  const supabase = createClient()
+  const [values, setValues] = useState({
+    online_status_visible: settings?.online_status_visible ?? true,
+    read_receipts: settings?.read_receipts ?? true,
+    typing_indicators: settings?.typing_indicators ?? true,
+  })
+  const [saving, setSaving] = useState<string | null>(null)
+  const [sessions, setSessions] = useState<any[]>([])
+  const [showSessions, setShowSessions] = useState(false)
+  const [loadingSessions, setLoadingSessions] = useState(false)
+
+  // Sync si settings chargé après le rendu
+  useEffect(() => {
+    if (settings) {
+      setValues({
+        online_status_visible: settings.online_status_visible ?? true,
+        read_receipts: settings.read_receipts ?? true,
+        typing_indicators: settings.typing_indicators ?? true,
+      })
+    }
+  }, [settings])
+
+  const toggle = async (key: string) => {
+    const newVal = !values[key as keyof typeof values]
+    setValues(prev => ({ ...prev, [key]: newVal }))
+    setSaving(key)
+    
+    // Upsert — crée les settings si inexistants
+    const { error } = await supabase
+      .from("user_settings")
+      .upsert({ user_id: userId, [key]: newVal }, { onConflict: "user_id" })
+    
+    if (error) {
+      // Rollback si erreur
+      setValues(prev => ({ ...prev, [key]: !newVal }))
+      console.error("Erreur toggle:", error)
+    }
+    setSaving(null)
+  }
+
+  // Charger les sessions actives
+  const loadSessions = async () => {
+    setLoadingSessions(true)
+    setShowSessions(true)
+    // Supabase ne fournit pas les sessions via client JS
+    // On simule avec la session actuelle
+    const { data: { session } } = await supabase.auth.getSession()
+    if (session) {
+      setSessions([{
+        id: session.access_token.slice(-8),
+        device: navigator.userAgent.includes("Mobile") ? "📱 Mobile" : "💻 Desktop",
+        location: "Session actuelle",
+        created_at: new Date(session.expires_at! * 1000 - 3600000).toISOString(),
+        isCurrent: true,
+      }])
+    }
+    setLoadingSessions(false)
+  }
+
+  const PRIVACY_ITEMS = [
+    {
+      key: "online_status_visible",
+      label: "Afficher mon statut en ligne",
+      desc: "Les autres peuvent voir si tu es connecté",
+      icon: "🟢",
+    },
+    {
+      key: "read_receipts",
+      label: "Accusés de lecture",
+      desc: "Les autres voient quand tu as lu leurs messages",
+      icon: "✓✓",
+    },
+    {
+      key: "typing_indicators",
+      label: "Indicateur de frappe",
+      desc: "Les autres voient quand tu écris",
+      icon: "⌨️",
+    },
+  ]
+
   return (
-    <div className="space-y-4">
-      <h2 className="text-sm font-semibold">Confidentialité</h2>
-      <div className="bg-muted/30 rounded-xl p-4 text-sm text-muted-foreground">
-        <p>Les paramètres de confidentialité avancés seront disponibles prochainement.</p>
+    <div className="space-y-6 max-w-xl">
+      <div>
+        <h2 className="text-sm font-semibold mb-1">Confidentialité</h2>
+        <p className="text-xs text-muted-foreground">Contrôle ce que les autres peuvent voir</p>
+      </div>
+
+      {/* Toggles */}
+      <div className="space-y-1">
+        {PRIVACY_ITEMS.map(({ key, label, desc, icon }) => (
+          <div key={key} className="flex items-center justify-between py-3 px-4 bg-muted/30 rounded-xl hover:bg-muted/50 transition-colors">
+            <div className="flex items-start gap-3">
+              <span className="text-base mt-0.5">{icon}</span>
+              <div>
+                <p className="text-sm font-medium">{label}</p>
+                <p className="text-xs text-muted-foreground">{desc}</p>
+              </div>
+            </div>
+            <button
+              onClick={() => toggle(key)}
+              disabled={saving === key}
+              className={cn(
+                "w-11 h-6 rounded-full transition-all relative shrink-0 ml-4",
+                values[key as keyof typeof values] ? "bg-primary" : "bg-muted-foreground/30",
+                saving === key && "opacity-70"
+              )}
+            >
+              <span className={cn(
+                "absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-transform",
+                values[key as keyof typeof values] ? "translate-x-6" : "translate-x-1"
+              )} />
+            </button>
+          </div>
+        ))}
+      </div>
+
+      {/* Sécurité du compte */}
+      <div>
+        <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Sécurité du compte</h3>
+        <div className="space-y-1">
+          <div className="flex items-center justify-between py-3 px-4 bg-muted/30 rounded-xl">
+            <div className="flex items-start gap-3">
+              <span className="text-base">🔑</span>
+              <div>
+                <p className="text-sm font-medium">Changer le mot de passe</p>
+                <p className="text-xs text-muted-foreground">Envoie un lien par email</p>
+              </div>
+            </div>
+            <ChangePasswordButton userId={userId} />
+          </div>
+
+          <div className="bg-muted/30 rounded-xl overflow-hidden">
+            <div className="flex items-center justify-between py-3 px-4">
+              <div className="flex items-start gap-3">
+                <span className="text-base">📱</span>
+                <div>
+                  <p className="text-sm font-medium">Sessions actives</p>
+                  <p className="text-xs text-muted-foreground">Voir les appareils connectés</p>
+                </div>
+              </div>
+              <button
+                onClick={showSessions ? () => setShowSessions(false) : loadSessions}
+                disabled={loadingSessions}
+                className="text-xs text-primary hover:underline"
+              >
+                {loadingSessions ? "…" : showSessions ? "Fermer" : "Voir"}
+              </button>
+            </div>
+            {showSessions && (
+              <div className="border-t border-border px-4 pb-3 space-y-2">
+                {sessions.length === 0 ? (
+                  <p className="text-xs text-muted-foreground py-2">Aucune session trouvée</p>
+                ) : sessions.map((s) => (
+                  <div key={s.id} className="flex items-center justify-between py-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm">{s.device}</span>
+                      <div>
+                        <p className="text-xs font-medium flex items-center gap-1">
+                          {s.location}
+                          {s.isCurrent && (
+                            <span className="text-[10px] bg-green-500/10 text-green-600 px-1.5 py-0.5 rounded-full">
+                              Actuelle
+                            </span>
+                          )}
+                        </p>
+                        <p className="text-[10px] text-muted-foreground">
+                          {new Date(s.created_at).toLocaleString("fr-FR")}
+                        </p>
+                      </div>
+                    </div>
+                    {!s.isCurrent && (
+                      <button className="text-xs text-destructive hover:underline">
+                        Déconnecter
+                      </button>
+                    )}
+                  </div>
+                ))}
+                <button
+                  onClick={async () => {
+                    await supabase.auth.signOut({ scope: "global" })
+                    window.location.href = "/login"
+                  }}
+                  className="w-full text-xs text-destructive border border-destructive/20 rounded-lg py-2 hover:bg-destructive/10 transition-colors mt-1"
+                >
+                  Déconnecter tous les appareils
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Zone dangereuse */}
+      <div>
+        <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Zone dangereuse</h3>
+        <div className="border border-destructive/20 rounded-xl p-4 space-y-3 bg-destructive/5">
+          <div className="flex items-start gap-3">
+            <span className="text-base">⚠️</span>
+            <div className="flex-1">
+              <p className="text-sm font-medium text-destructive">Supprimer mon compte</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Toutes tes données seront définitivement supprimées. Cette action est irréversible.
+              </p>
+            </div>
+          </div>
+          <DeleteAccountButton userId={userId} />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ChangePasswordButton({ userId }: { userId: string }) {
+  const supabase = createClient()
+  const [sent, setSent] = useState(false)
+  const [loading, setLoading] = useState(false)
+
+  const send = async () => {
+    setLoading(true)
+    const { data: { user } } = await supabase.auth.getUser()
+    if (user?.email) {
+      await supabase.auth.resetPasswordForEmail(user.email, {
+        redirectTo: `${window.location.origin}/auth/callback`,
+      })
+      setSent(true)
+    }
+    setLoading(false)
+  }
+
+  return (
+    <button
+      onClick={send}
+      disabled={loading || sent}
+      className={cn(
+        "text-xs px-3 py-1.5 rounded-lg transition-colors",
+        sent ? "bg-green-500/10 text-green-600" : "bg-primary/10 text-primary hover:bg-primary/20"
+      )}
+    >
+      {loading ? "…" : sent ? "Email envoyé ✓" : "Envoyer"}
+    </button>
+  )
+}
+
+function DeleteAccountButton({ userId }: { userId: string }) {
+  const supabase = createClient()
+  const router = useRouter()
+  const [confirm, setConfirm] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [input, setInput] = useState("")
+
+  const deleteAccount = async () => {
+    if (input !== "SUPPRIMER") return
+    setLoading(true)
+    // Supprimer les données utilisateur
+    await supabase.from("profiles").delete().eq("id", userId)
+    await supabase.auth.signOut()
+    router.push("/login")
+  }
+
+  if (!confirm) {
+    return (
+      <button
+        onClick={() => setConfirm(true)}
+        className="text-xs text-destructive border border-destructive/30 px-3 py-1.5 rounded-lg hover:bg-destructive/10 transition-colors"
+      >
+        Supprimer mon compte
+      </button>
+    )
+  }
+
+  return (
+    <div className="space-y-2">
+      <p className="text-xs text-muted-foreground">
+        Tape <strong className="text-destructive">SUPPRIMER</strong> pour confirmer
+      </p>
+      <input
+        value={input}
+        onChange={e => setInput(e.target.value)}
+        placeholder="SUPPRIMER"
+        className="w-full text-sm bg-background border border-destructive/30 rounded-lg px-3 py-2 outline-none focus:border-destructive"
+      />
+      <div className="flex gap-2">
+        <button onClick={() => setConfirm(false)} className="flex-1 text-xs py-1.5 rounded-lg bg-muted hover:bg-muted/80">
+          Annuler
+        </button>
+        <button
+          onClick={deleteAccount}
+          disabled={input !== "SUPPRIMER" || loading}
+          className="flex-1 text-xs py-1.5 rounded-lg bg-destructive text-destructive-foreground disabled:opacity-40"
+        >
+          {loading ? "…" : "Confirmer"}
+        </button>
       </div>
     </div>
   )

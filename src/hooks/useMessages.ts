@@ -90,3 +90,26 @@ export function useMessages({ conversationId, initialMessages }: {
 
   return { messages, loadMore, hasMore, loading }
 }
+
+// Marquer les messages comme lus et mettre à jour leur statut
+export async function markMessagesAsRead(
+  conversationId: string,
+  currentUserId: string
+) {
+  const supabase = createClient()
+
+  // 1. Mettre à jour last_read_at du membre
+  await supabase
+    .from("conversation_members")
+    .update({ last_read_at: new Date().toISOString() })
+    .eq("conversation_id", conversationId)
+    .eq("user_id", currentUserId)
+
+  // 2. Marquer tous les messages non-lus comme "read"
+  await supabase
+    .from("messages")
+    .update({ status: "read" })
+    .eq("conversation_id", conversationId)
+    .neq("sender_id", currentUserId)
+    .neq("status", "read")
+}
