@@ -40,7 +40,30 @@ export default function IncomingCallBanner({ currentUserId, onAccept }: Props) {
 
   const reject = async () => {
     if (!call) return
-    await supabase.from("calls").update({ status: "rejected", ended_at: new Date().toISOString() }).eq("id", call.id)
+
+    // 1. Broadcast immédiat au canal RTC pour notifier l'appelant
+    const rtcChannel = supabase.channel(`rtc:${call.id}`, {
+      config: { broadcast: { self: false, ack: false } }
+    })
+    await new Promise<void>(resolve => {
+      rtcChannel.subscribe(async (status) => {
+        if (status === "SUBSCRIBED") {
+          await rtcChannel.send({
+            type: "broadcast",
+            event: "end_call",
+            payload: { from: currentUserId, reason: "rejected" },
+          })
+          resolve()
+        }
+      })
+    })
+    supabase.removeChannel(rtcChannel)
+
+    // 2. Mettre à jour la DB
+    await supabase.from("calls")
+      .update({ status: "rejected", ended_at: new Date().toISOString() })
+      .eq("id", call.id)
+
     setCall(null)
   }
 
