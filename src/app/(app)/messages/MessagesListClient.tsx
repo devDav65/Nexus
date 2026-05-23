@@ -37,14 +37,82 @@ export default function MessagesListClient({ initialConversations, currentUserId
       .eq("user_id", currentUserId)
       .order("conversation(last_message_at)", { ascending: false })
       .limit(40)
-    if (data) setConversations(data)
+    if (data) {
+      // Trier par last_message_at décroissant côté client aussi
+      const sorted = [...data].sort((a, b) => {
+        const aTime = a.conversation?.last_message_at ? new Date(a.conversation.last_message_at).getTime() : 0
+        const bTime = b.conversation?.last_message_at ? new Date(b.conversation.last_message_at).getTime() : 0
+        return bTime - aTime
+      })
+      setConversations(sorted)
+    }
   }
 
   useEffect(() => {
     const channel = supabase
       .channel("messages-list")
-      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "conversations" }, refetch)
-      .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages" }, refetch)
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "conversations" }, (payload) => {
+        // Mise à jour optimiste — déplacer la conversation en tête immédiatement
+        setConversations(prev => {
+          const updated = prev.map(item => {
+            if (item.conversation?.id === payload.new.id) {
+              return {
+                ...item,
+                conversation: {
+                  ...item.conversation,
+                  last_message_at: payload.new.last_message_at,
+                  last_message_preview: payload.new.last_message_preview,
+                }
+              }
+            }
+            return item
+          })
+          // Trier immédiatement
+          return [...updated].sort((a, b) => {
+            const aTime = a.conversation?.last_message_at ? new Date(a.conversation.last_message_at).getTime() : 0
+            const bTime = b.conversation?.last_message_at ? new Date(b.conversation.last_message_at).getTime() : 0
+            return bTime - aTime
+          })
+        })
+        // Puis refetch complet pour avoir les données à jour
+        setTimeout(refetch, 500)
+      })
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages" }, (payload) => {
+        const convId = payload.new.conversation_id
+        const now = payload.new.created_at ?? new Date().toISOString()
+        const preview = payload.new.content ?? "📎 Fichier"
+
+        // Mise à jour optimiste immédiate pour le RECEVEUR aussi
+        setConversations(prev => {
+          const exists = prev.some(item => item.conversation?.id === convId)
+          if (!exists) {
+            // Nouvelle conversation — refetch complet
+            setTimeout(refetch, 300)
+            return prev
+          }
+          const updated = prev.map(item => {
+            if (item.conversation?.id === convId) {
+              return {
+                ...item,
+                conversation: {
+                  ...item.conversation,
+                  last_message_at: now,
+                  last_message_preview: preview,
+                }
+              }
+            }
+            return item
+          })
+          // Remonter immédiatement en tête
+          return [...updated].sort((a, b) => {
+            const aTime = a.conversation?.last_message_at ? new Date(a.conversation.last_message_at).getTime() : 0
+            const bTime = b.conversation?.last_message_at ? new Date(b.conversation.last_message_at).getTime() : 0
+            return bTime - aTime
+          })
+        })
+        // Pas de refetch — le tri optimiste suffit
+        // Le refetch se fait via l'UPDATE de conversations (trigger SQL)
+      })
       .subscribe()
     return () => { supabase.removeChannel(channel) }
   }, [currentUserId])
