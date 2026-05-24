@@ -1,10 +1,11 @@
-"use client";
+"use client"
 
-import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { MessageSquare, BookOpen, Users, Phone, Settings, Search } from "lucide-react";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { cn } from "@/lib/utils";
+import Link from "next/link"
+import { usePathname } from "next/navigation"
+import { MessageSquare, BookOpen, Users, Phone, Settings, Search } from "lucide-react"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import { cn } from "@/lib/utils"
+import NotificationBell from "@/components/notifications/NotificationBell"
 
 const NAV_ITEMS = [
   { href: "/messages",    icon: MessageSquare, label: "Messages" },
@@ -12,23 +13,24 @@ const NAV_ITEMS = [
   { href: "/communities", icon: Users,         label: "Communautés" },
   { href: "/calls",       icon: Phone,         label: "Appels" },
   { href: "/settings",    icon: Settings,      label: "Réglages" },
-];
+]
 
 interface SidebarProps {
   profile: {
-    id: string;
-    username: string | null;
-    display_name: string | null;
-    avatar_url: string | null;
-    status: string | null;
-  };
+    id: string
+    username: string | null
+    display_name: string | null
+    avatar_url: string | null
+    status: string | null
+  }
 }
 
 export default function Sidebar({ profile }: SidebarProps) {
-  const pathname = usePathname();
+  const pathname = usePathname()
 
   return (
     <div className="flex flex-col h-full bg-background">
+      {/* Profil + cloche */}
       <div className="flex items-center gap-3 px-4 py-4 border-b border-border shrink-0">
         <Avatar className="w-9 h-9 shrink-0">
           <AvatarImage src={profile.avatar_url ?? undefined} />
@@ -42,8 +44,11 @@ export default function Sidebar({ profile }: SidebarProps) {
           </p>
           <p className="text-xs text-muted-foreground truncate">@{profile.username}</p>
         </div>
+        {/* Cloche notifications */}
+        <NotificationBell userId={profile.id} />
       </div>
 
+      {/* Recherche */}
       <div className="px-3 py-2 shrink-0">
         <Link
           href="/search"
@@ -57,9 +62,10 @@ export default function Sidebar({ profile }: SidebarProps) {
         </Link>
       </div>
 
+      {/* Navigation */}
       <nav className="flex-1 px-2 py-1 space-y-0.5 overflow-y-auto">
         {NAV_ITEMS.map(({ href, icon: Icon, label }) => {
-          const active = pathname.startsWith(href);
+          const active = pathname.startsWith(href)
           return (
             <Link
               key={href}
@@ -74,9 +80,9 @@ export default function Sidebar({ profile }: SidebarProps) {
               <Icon className={cn("w-4 h-4 shrink-0", active && "stroke-[2.5px]")} />
               {label}
             </Link>
-          );
+          )
         })}
       </nav>
     </div>
-  );
+  )
 }
