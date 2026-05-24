@@ -19,12 +19,17 @@ export default async function MessagesPage() {
       )
     `)
     .eq("user_id", user!.id)
-    .order("conversation(last_message_at)", { ascending: false })
     .limit(40);
+  // Trier par last_message_at côté serveur
+  const sorted = (memberships ?? []).sort((a: any, b: any) => {
+    const aTime = a.conversation?.last_message_at ? new Date(a.conversation.last_message_at).getTime() : 0
+    const bTime = b.conversation?.last_message_at ? new Date(b.conversation.last_message_at).getTime() : 0
+    return bTime - aTime
+  })
 
   return (
     <MessagesListClient
-      initialConversations={memberships ?? []}
+      initialConversations={sorted}
       currentUserId={user!.id}
     />
   );

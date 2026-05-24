@@ -18,7 +18,13 @@ interface Props {
 
 export default function MessagesListClient({ initialConversations, currentUserId }: Props) {
   const supabase = createClient()
-  const [conversations, setConversations] = useState(initialConversations)
+  const [conversations, setConversations] = useState(() => {
+    return [...initialConversations].sort((a, b) => {
+      const aTime = a.conversation?.last_message_at ? new Date(a.conversation.last_message_at).getTime() : 0
+      const bTime = b.conversation?.last_message_at ? new Date(b.conversation.last_message_at).getTime() : 0
+      return bTime - aTime
+    })
+  })
   const [query, setQuery] = useState("")
 
   const refetch = async () => {
@@ -52,6 +58,7 @@ export default function MessagesListClient({ initialConversations, currentUserId
     const channel = supabase
       .channel("messages-list")
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "conversations" }, (payload) => {
+        // Déclenché pour l'expéditeur ET le destinataire via le trigger SQL
         // Mise à jour optimiste — déplacer la conversation en tête immédiatement
         setConversations(prev => {
           const updated = prev.map(item => {
