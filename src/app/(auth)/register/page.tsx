@@ -62,7 +62,7 @@ export default function RegisterPage() {
   return (
     <div className="bg-card border rounded-xl p-8 shadow-sm">
       <h2 className="text-xl font-semibold mb-6">Créer un compte</h2>
-      <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+      <form onSubmit={handleSubmit(onSubmit)} method="POST" className="space-y-4">
         <div>
           <Label htmlFor="username">Nom d'utilisateur</Label>
           <Input id="username" placeholder="ton_pseudo" {...register('username')} />

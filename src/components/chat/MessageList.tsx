@@ -2,14 +2,16 @@
 import { RefObject } from "react"
 import MessageBubble from "./MessageBubble"
 
-interface MessageListProps {
+interface Props {
   messages: any[]
   currentUserId: string
   typingUsers: string[]
   bottomRef: RefObject<HTMLDivElement>
+  onEdit?: (id: string, content: string) => void
+  onDelete?: (id: string) => void
 }
 
-export default function MessageList({ messages, currentUserId, typingUsers, bottomRef }: MessageListProps) {
+export default function MessageList({ messages, currentUserId, typingUsers, bottomRef, onEdit, onDelete }: Props) {
   return (
     <div className="flex-1 overflow-y-auto px-4 py-3 space-y-1">
       {messages.length === 0 && (
@@ -26,7 +28,15 @@ export default function MessageList({ messages, currentUserId, typingUsers, bott
         const isGrouped = !!prevMsg && prevSenderId === msgSenderId &&
           new Date(msg.created_at).getTime() - new Date(prevMsg.created_at).getTime() < 60000
         return (
-          <MessageBubble key={msg.id} message={msg} isOwn={isOwn} showAvatar={showAvatar} isGrouped={isGrouped} />
+          <MessageBubble
+            key={msg.id}
+            message={msg}
+            isOwn={isOwn}
+            showAvatar={showAvatar}
+            isGrouped={isGrouped}
+            onEdit={onEdit}
+            onDelete={onDelete}
+          />
         )
       })}
       {typingUsers.length > 0 && (

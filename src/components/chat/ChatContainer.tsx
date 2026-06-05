@@ -22,11 +22,37 @@ export default function ChatContainer({
 }: ChatContainerProps) {
   const supabase = createClient()
   const [messages, setMessages] = useState<any[]>(initialMessages)
+  const [isBlocked, setIsBlocked] = useState(false)
+  const [blockedByOther, setBlockedByOther] = useState(false)
   const [typingUsers, setTypingUsers] = useState<string[]>([])
   const [connected, setConnected] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
   const typingTimeoutRef = useRef<NodeJS.Timeout>()
   const channelRef = useRef<RealtimeChannel | null>(null)
+
+  // Vérifier si bloqué au montage
+  useEffect(() => {
+    const isDM = conversation.type === "direct"
+    if (!isDM) return
+    const otherUserId = conversation.members?.find((m: any) => m.user_id !== currentUserId)?.user_id
+    if (!otherUserId) return
+
+    // Est-ce que JE l'ai bloqué ?
+    supabase.from("blocked_users")
+      .select("id")
+      .eq("blocker_id", currentUserId)
+      .eq("blocked_id", otherUserId)
+      .maybeSingle()
+      .then(({ data }) => setIsBlocked(!!data))
+
+    // Est-ce qu'IL m'a bloqué ?
+    supabase.from("blocked_users")
+      .select("id")
+      .eq("blocker_id", otherUserId)
+      .eq("blocked_id", currentUserId)
+      .maybeSingle()
+      .then(({ data }) => setBlockedByOther(!!data))
+  }, [conversation.id, currentUserId])
 
   const membersMap = Object.fromEntries(
     (conversation.members ?? []).map((m: any) => [m.user_id, m.profile])
@@ -160,6 +186,14 @@ export default function ChatContainer({
     }
   }
 
+  const handleEdit = (id: string, newContent: string) => {
+    setMessages(prev => prev.map(m => m.id === id ? { ...m, content: newContent, is_edited: true } : m))
+  }
+
+  const handleDelete = (id: string) => {
+    setMessages(prev => prev.map(m => m.id === id ? { ...m, is_deleted: true, content: "Message supprimé" } : m))
+  }
+
   const isDM = conversation.type === "direct"
   const otherMember = isDM
     ? conversation.members?.find((m: any) => m.user_id !== currentUserId)
@@ -183,6 +217,8 @@ export default function ChatContainer({
         currentUserId={currentUserId}
         typingUsers={typingUsers}
         bottomRef={bottomRef}
+        onEdit={handleEdit}
+        onDelete={handleDelete}
       />
       <MessageInput
         onSend={sendMessage}

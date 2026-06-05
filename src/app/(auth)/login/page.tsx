@@ -1,4 +1,4 @@
-'use client'
+'use client';
 
 import { useState } from 'react'
 import { useForm } from 'react-hook-form'
@@ -21,6 +21,7 @@ export default function LoginPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const redirectTo = searchParams.get('redirectTo') ?? '/messages'
+  const errorParam = searchParams.get('error')
   const [error, setError] = useState<string | null>(null)
   const [googleLoading, setGoogleLoading] = useState(false)
   const supabase = createClient()
@@ -41,10 +42,16 @@ export default function LoginPage() {
 
   const signInWithGoogle = async () => {
     setGoogleLoading(true)
+    // Utiliser l'origine actuelle pour supporter localhost ET l'IP locale
+    const origin = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000'
     await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
-        redirectTo: `${location.origin}/auth/callback?redirectTo=${redirectTo}`,
+        redirectTo: `${origin}/auth/callback`,
+        queryParams: {
+          access_type: 'offline',
+          prompt: 'consent',
+        },
       },
     })
   }
@@ -52,6 +59,11 @@ export default function LoginPage() {
   return (
     <div className="bg-card border rounded-xl p-8 shadow-sm">
       <h2 className="text-xl font-semibold mb-6">Connexion</h2>
+      {errorParam && (
+        <div className="bg-destructive/10 text-destructive text-xs p-3 rounded-md mb-4 break-all">
+          Erreur : {decodeURIComponent(errorParam)}
+        </div>
+      )}
 
       <Button
         variant="outline"
@@ -77,7 +89,7 @@ export default function LoginPage() {
         </div>
       </div>
 
-      <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+      <form onSubmit={handleSubmit(onSubmit)} method="POST" className="space-y-4">
         <div>
           <Label htmlFor="email">Email</Label>
           <Input id="email" type="email" placeholder="toi@exemple.com" {...register('email')} />

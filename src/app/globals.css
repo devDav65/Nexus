@@ -25,3 +25,12 @@ body {
     text-wrap: balance;
   }
 }
+
+@keyframes progress {
+  from { width: 0% }
+  to   { width: 100% }
+}
+
+.safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
