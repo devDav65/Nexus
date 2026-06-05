@@ -55,72 +55,50 @@ export default function MessagesListClient({ initialConversations, currentUserId
   }
 
   useEffect(() => {
+    // Écouter les nouveaux messages — fonctionne pour expéditeur ET destinataire
     const channel = supabase
-      .channel("messages-list")
-      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "conversations" }, (payload) => {
-        // Déclenché pour l'expéditeur ET le destinataire via le trigger SQL
-        // Mise à jour optimiste — déplacer la conversation en tête immédiatement
-        setConversations(prev => {
-          const updated = prev.map(item => {
-            if (item.conversation?.id === payload.new.id) {
-              return {
-                ...item,
-                conversation: {
-                  ...item.conversation,
-                  last_message_at: payload.new.last_message_at,
-                  last_message_preview: payload.new.last_message_preview,
-                }
-              }
-            }
-            return item
-          })
-          // Trier immédiatement
-          return [...updated].sort((a, b) => {
-            const aTime = a.conversation?.last_message_at ? new Date(a.conversation.last_message_at).getTime() : 0
-            const bTime = b.conversation?.last_message_at ? new Date(b.conversation.last_message_at).getTime() : 0
-            return bTime - aTime
-          })
-        })
-        // Puis refetch complet pour avoir les données à jour
-        setTimeout(refetch, 500)
-      })
-      .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages" }, (payload) => {
-        const convId = payload.new.conversation_id
-        const now = payload.new.created_at ?? new Date().toISOString()
-        const preview = payload.new.content ?? "📎 Fichier"
+      .channel(`convlist:${currentUserId}`)
+      .on("postgres_changes", {
+        event: "INSERT",
+        schema: "public",
+        table: "messages",
+      }, (payload) => {
+        const msg = payload.new as any
+        const convId = msg.conversation_id
+        const now = msg.created_at ?? new Date().toISOString()
+        const preview = msg.content ?? "📎 Fichier"
 
-        // Mise à jour optimiste immédiate pour le RECEVEUR aussi
         setConversations(prev => {
           const exists = prev.some(item => item.conversation?.id === convId)
           if (!exists) {
-            // Nouvelle conversation — refetch complet
-            setTimeout(refetch, 300)
+            // Conversation inconnue → refetch complet
+            refetch()
             return prev
           }
+
           const updated = prev.map(item => {
-            if (item.conversation?.id === convId) {
-              return {
-                ...item,
-                conversation: {
-                  ...item.conversation,
-                  last_message_at: now,
-                  last_message_preview: preview,
-                }
+            if (item.conversation?.id !== convId) return item
+            return {
+              ...item,
+              conversation: {
+                ...item.conversation,
+                last_message_at: now,
+                last_message_preview: preview,
               }
             }
-            return item
           })
-          // Remonter immédiatement en tête
+
           return [...updated].sort((a, b) => {
-            const aTime = a.conversation?.last_message_at ? new Date(a.conversation.last_message_at).getTime() : 0
-            const bTime = b.conversation?.last_message_at ? new Date(b.conversation.last_message_at).getTime() : 0
+            const aTime = a.conversation?.last_message_at
+              ? new Date(a.conversation.last_message_at).getTime() : 0
+            const bTime = b.conversation?.last_message_at
+              ? new Date(b.conversation.last_message_at).getTime() : 0
             return bTime - aTime
           })
         })
-        // Pas de refetch — le tri optimiste suffit
-        // Le refetch se fait via l'UPDATE de conversations (trigger SQL)
       })
       .subscribe()
+
     return () => { supabase.removeChannel(channel) }
   }, [currentUserId])
 
